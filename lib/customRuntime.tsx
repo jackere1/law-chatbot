@@ -8,25 +8,40 @@ import {
 } from "@assistant-ui/react";
 
 export const MyModelAdapter: ChatModelAdapter = {
-  async run({ messages, abortSignal }) {
-    const result = await fetch(
-      process.env.NEXT_PUBLIC_BACKEND_HOST +
-        "/api/v1/stream?query=" +
-        (messages[messages.length - 1].content[0] as { text: string }).text,
+  async *run({ messages, abortSignal }) {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_BACKEND_HOST}/api/v1/stream?query=${
+        (messages[messages.length - 1].content[0] as { text: string }).text
+      }`,
       {
         signal: abortSignal,
       }
     );
 
-    const data = await result.text();
-    return {
-      content: [
-        {
-          type: "text",
-          text: data,
-        },
-      ],
-    };
+    if (!response.body) {
+      throw new Error("No response body");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulatedText = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
+
+        yield {
+          content: [{ type: "text", text: accumulatedText }],
+        };
+      }
+    } catch (error) {
+      console.error("Error reading from stream:", error);
+      throw error;
+    }
   },
 };
 
